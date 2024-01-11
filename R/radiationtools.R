@@ -971,6 +971,207 @@ shortwaveveg <- function(dni, dif, julian, localtime, lat = NA, long = NA,
   fgc <- fgd + fged
   if_raster(fgc, r)
 }
+
+
+#' Downscales downwelling shortwave radiation accounting for vegetation
+#'
+#' @description
+#' `shortwaveveg_downwelling_canopy` is used to downscale the flux density of downwelling shortwave radiation
+#' received at the surface of the Earth, accounting for canopy effects.
+#'
+#' @param dni a single numeric value, raster object, two-dimensional array or matrix of coarse-resolution direct radiation perpendicular to the solar beam (\ifelse{html}{\out{MJ m<sup>-2</sup> hr<sup>-1</sup>}}{\eqn{MJ m^{-2} hr^{-1}}}).
+#' @param dif a single numeric value, raster object, two-dimensional array or matrix of coarse-resolution diffuse radiation horizontal ot the surface (\ifelse{html}{\out{MJ m<sup>-2</sup> hr<sup>-1</sup>}}{\eqn{MJ m^{-2} hr^{-1}}}).
+#' @param julian a single integer representing the Julian as returned by [julday()].
+#' @param localtime a single numeric value representing local time (decimal hour, 24 hour clock).
+#' @param lat an optional single numeric value representing the mean latitude of the location for which downscaled radiation is required (decimal degrees, -ve south of equator).
+#' @param long an optional single numeric value representing the mean longitude of the location for which downscaled radiation is required (decimal degrees, -ve west of Greenwich meridian).
+#' @param dtm an optional raster object, two-dimensional array or matrix of elevations (m), orientated as if derived using [is_raster()]. I.e. `[1, 1]` is the NW corner.
+#' @param slope an optional single value, raster object, two-dimensional array or matrix of slopes (º). If an array or matrix, then orientated as if derived using [is_raster()]. I.e. `[1, 1]` is the NW corner.
+#' @param aspect an optional single value, raster object, two-dimensional array or matrix of aspects (º). If an array or matrix, then orientated as if derived using [is_raster()]. I.e. `[1, 1]` is the NW corner.
+#' @param svv an optional raster object, two-dimensional array or matrix of values representing the proportion of isotropic radiation received by a surface partially obscured by topography relative to the full hemisphere underneath vegetation as returned by [skyviewveg()].
+#' @param alb an optional single value, raster object, two-dimensional array or matrix of values representing albedo(s) as returned by [albedo()].
+#' @param albr an optional single value, raster object, two-dimensional array or matrix of values representing the albedo(s) of adjacent surfaces as returned by [albedo_reflected()].
+#' @param ha an optional raster object, two-dimensional array or matrix of values representing the mean slope to the horizon (decimal degrees) of surrounding surfaces from which radiation is reflected for each cell of `dtm` as returned by [mean_slope()].
+#' @param reso a single numeric value representing the spatial resolution of `dtm` (m).
+#' @param merid an optional numeric value representing the longitude (decimal degrees) of the local time zone meridian (0 for GMT). Default is `round(long / 15, 0) * 15`
+#' @param dst an optional numeric value representing the time difference from the timezone meridian (hours, e.g. +1 for BST if `merid` = 0).
+#' @param shadow an optional logical value indicating whether topographic shading should be considered (False = No, True = Yes).
+#' @param x a raster object, two-dimensional array or matrix of numeric values representing the ratio of vertical to horizontal projections of leaf foliage as returned by [leaf_geometry()].
+#' @param l a raster object, two-dimensional array or matrix of leaf area index values as returned by [lai()].
+#' @param difani an optinional logical indicating whether to treat a proportion of the diffuse radiation as anistropic (see details).
+#' @import raster
+#' @export
+#'
+#' @details
+#'
+#' THIS IS AN EDIT SO THAT THE FUNCTION JUST DOES DOWNWELLING SHORTWAVE AS A FUNCTION OF LEAF AREA INDEX
+#'
+#' If `slope` is unspecified, and `dtm` is a raster, `slope` and `aspect` are calculated from
+#' the raster. If `slope` is unspecified, and `dtm` is not a raster, the slope and aspect
+#' are set to zero. If `lat` is unspecified, and `dtm` is a raster with a coordinate reference
+#' system defined, `lat` and `long` are calculated from the raster. If `lat` is unspecified,
+#' and `dtm` is not a raster, or a raster without a coordinate reference system defined, an
+#' error is returned. If `dtm` is specified, then the projection system used must be such that
+#' units of x, y and z are identical. Use [projectRaster()] to convert the projection to a
+#' Universal Transverse Mercator type projection system. If `dtm` is a raster object, a raster
+#' object is returned. If `dtm` is a raster object, a raster object is returned. If `dni` or `dif` are raster
+#' objects, two-dimensional arrays or matrices, then it is assumed that they have been
+#' derived from coarse-resolution data by interpolation, and have the same extent as `dtm`.
+#' If no value for `ha` is provided, the mean slope to the horizon is assumed
+#' to be 0. If no value for `svv` is provided, then the entire hemisphere is
+#' assumed to be in view. If values of `albg` and `albr` are not specified,
+#' then a default value of 0.23, typical of well-watered grass is assumed. If
+#' single values of `albg` and `albr` are given, then the entire area is
+#' assumed to have the same albedo. If `dtm` is specified, then the projection
+#' system used must be such that the units of x, y and z are identical. Use
+#' [projectRaster()] to convert the projection to a Universal Transverse
+#' Mercator type projection system. If no value for `dtm` is provided,
+#' radiation is downscaled by deriving values on the inclined surfaces
+#' specified in `slope` and `aspect` and topographic shadowing is ignored. If
+#' single values are provided for `slope` and `aspect`, the entire extent
+#' covered by `fr` is assumed to have the same slope and aspect. Only single
+#' values of `lat` and `long` are taken as inputs. Under partially
+#' cloudy conditions, a proportion of diffuse radiation is typically anistropic
+#' (directional). If `difani` is TRUE (the default), then the assumption is made that
+#' hourly direct radiation transmission can define the portions of the diffuse
+#' radiation to be treated as anistropic and isotropic. If `dtm` covers a large
+#' extent, the `dtm` is best divided into blocks and seperate calculations
+#' performed on each block. Since horizon angles, topographic shading and
+#' sky view correction factors may be influenced by locations beyond the extent of `dtm`, it is best to ensure
+#' `dtm` covers a larger extent than that for which radiation values are
+#' needed, and to ensure sub-divided blocks overlap in extent. Calculations are faster
+#' if values for all inputs are provided.
+#'
+#' @seealso Function [shortwavetopo()] returns net shortwave radiation, or components thereof, above the canopy.
+#'
+#' @return a raster object, two-dimensional array of numeric values representing net shortwave radiation (MJ per metre squared per hour).
+#' The raster package function [terrain()] can be used to derive slopes and aspects from `dtm` (see example).
+#'
+#' @examples
+#' library(raster)
+#' # =================================
+#' # Extract data for 2010-05-24 11:00
+#' # =================================
+#' dni <- microvars$dni[564]
+#' dif <- microvars$dif[564]
+#' # ==========================
+#' # Calculate input paramaters
+#' # ==========================
+#' x <- leaf_geometry(veg_hgt)
+#' l <- lai(aerial_image[,,3], aerial_image[,,4])
+#' l <- lai_adjust(l, veg_hgt)
+#' fr <- canopy(l)
+#' alb <- albedo(aerial_image[,,1], aerial_image[,,2], aerial_image[,,3],
+#'              aerial_image[,,4])
+#' sv <- skyviewveg(dtm1m, l, x)
+#' jd <- julday(2010, 5, 24)
+#' ha <- mean_slope(dtm1m)
+#' # ===============================================================
+#' # Calculate and plot net shortwave radiation for 2010-05-24 11:00
+#' # ===============================================================
+#' netshort1m <- shortwaveveg(dni, dif, jd, 11, dtm = dtm1m, svv = sv, alb = alb,
+#'                            fr = fr, ha = ha, x = x, l = l)
+#' plot(mask(netshort1m, dtm1m), main = "Net shortwave radiation")
+shortwaveveg_downwelling_canopy <- function(dni, dif, julian, localtime, lat = NA, long = NA,
+                         dtm = array(0, dim = c(1, 1)), slope = NA, aspect = NA,
+                         svv = 1, alb = 0.23, fr, albr = 0.23, ha = 0,
+                         reso = 1, merid = NA, dst = 0, shadow = TRUE,
+                         x, l, difani = TRUE) {
+
+
+  r <- dtm
+  if (class(slope)[1] == "logical" & class(r)[1] == "RasterLayer") {
+    slope <- terrain(r, opt = "slope", unit = "degrees")
+    aspect <- terrain(r, opt = "aspect", unit = "degrees")
+  }
+  if (class(slope)[1] == "logical" & class(r)[1] != "RasterLayer") {
+    slope <- 0
+    aspect <- 0
+  }
+  if (class(lat)[1] == "logical" & class(crs(r)) == "CRS") {
+    lat <- latlongfromraster(r)$lat
+    long <- latlongfromraster(r)$long
+  }
+  if (class(lat)[1] == "logical" & class(crs(r)) != "CRS")
+    stop("Latitude not defined and cannot be determined from raster")
+  if (class(merid) == "logical") merid <- round(long / 15, 0) * 15
+  dni <- is_raster(dni)
+  dif <- is_raster(dif)
+  slope <- is_raster(slope)
+  aspect <- is_raster(aspect)
+  svv <- is_raster(svv)
+  fr <- is_raster(fr)
+  albr <- is_raster(albr)
+  ha <- is_raster(ha)
+  x <- is_raster(x)
+  l <- is_raster(l)
+  dtm <- is_raster(dtm)
+  dtm[is.na(dtm)] <- 0
+  si <- solarindex(slope, aspect, localtime, lat, long, julian, dtm, reso,
+                   merid, dst, shadow)
+  dirr <- si * dni  ## strenght of direct beam on surface. Accounts for slope and aspect
+  a <- slope * (pi / 180) ## slope in radians
+  if (difani) {
+    k <- dni / 4.87
+  } else k <- 0
+  k <- ifelse(k > 1, 1, k)
+
+  ################################################################################
+  ## these four formulas are the first four formulas on page 283 of Maclean et al (2019)
+  ## Isotropically distributed diffuse rad
+  isor <- 0.5 * dif * (1 + cos(a)) * (1 - k)
+
+  ## anistropic diffuse rad
+  cisr <- k * dif * si
+
+  ## slope of surface + mean slope of the adjacent slopes
+  sdi <- (slope + ha) * (pi / 180)
+
+    ## reflected diffuse radiation
+  refr <- 0.5 * albr * (1 - cos(sdi)) * dif
+
+  ##############################################################################
+
+
+  ## part of the first term in the square brackets in the forumla after equation 2 in Maclean et al.
+  fd <- dirr + cisr
+
+  ## part of the second term in the square brackets in the forumla after equation 2 in Maclean et al. (2019)
+  fdf <- isor + refr
+
+  saltitude <- solalt(localtime, lat, long, julian, merid, dst)
+  albl <- albedo2(alb, fr,  ground = FALSE)
+  albg <- albedo2(alb, fr,  ground = TRUE)
+  if (is.na(mean(albl,na.rm = T))) {
+    albl <- 0.5
+    albg <- 0.15
+  }
+
+  ## What is this term?
+  s <- 1 - is_raster(albl)
+
+  ## equation 3 in Maclean et al. (2019)
+  zen <- 90 - saltitude
+  kk <- sqrt((x^2 + (tan(zen * (pi/180))^2)))/(x + 1.774 * (x + 1.182)^(-0.733))
+
+  ## exponential portion of the first term in the square brackets in the forumla after equation 2 in Maclean et al. (2018)
+  trd <- exp(-kk * s * l)
+
+  ## exponential portion of of the second term in the square brackets in the forumla after equation 2 in Maclean et al. (2018)
+  trf <- exp(-s * l)
+
+  ## direct subcanopy shortwave. removed albedo term to change it from net to downwelling shortwave
+  fgd <- fd * trd #* (1 - albg)
+
+  ## diffuse subcanopy shortwave. removed albedo term to change it from net to downwelling shortwave
+  fged <- fdf * trf #* (1 - albg) * svv
+
+  ## total subcaopy shortwave
+  fgc <- fgd + fged
+  if_raster(fgc, r)
+}
+
+
 #' Calculates the diffuse fraction from incoming shortwave radiation
 #'
 #' @description `difprop` calculates proportion of incoming shortwave radiation that is diffuse radiation using the method of Skartveit et al. (1998) Solar Energy, 63: 173-183.

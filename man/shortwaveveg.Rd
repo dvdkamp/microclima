@@ -25,7 +25,8 @@ shortwaveveg(
   shadow = TRUE,
   x,
   l,
-  difani = TRUE
+  difani = TRUE,
+  downwelling = F
 )
 }
 \arguments{

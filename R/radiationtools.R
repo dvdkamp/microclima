@@ -911,7 +911,7 @@ shortwaveveg <- function(dni, dif, julian, localtime, lat = NA, long = NA,
                          dtm = array(0, dim = c(1, 1)), slope = NA, aspect = NA,
                          svv = 1, alb = 0.23, fr, albr = 0.23, ha = 0,
                          reso = 1, merid = NA, dst = 0, shadow = TRUE,
-                         x, l, difani = TRUE) {
+                         x, l, difani = TRUE,downwelling = F) {
   r <- dtm
   if (class(slope)[1] == "logical" & class(r)[1] == "RasterLayer") {
     slope <- terrain(r, opt = "slope", unit = "degrees")
@@ -942,18 +942,39 @@ shortwaveveg <- function(dni, dif, julian, localtime, lat = NA, long = NA,
   dtm[is.na(dtm)] <- 0
   si <- solarindex(slope, aspect, localtime, lat, long, julian, dtm, reso,
                    merid, dst, shadow)
+
+  ## strength of direct beam on surface. Accounts for slope and aspect
   dirr <- si * dni
+
+  ## slope in radians
   a <- slope * (pi / 180)
   if (difani) {
     k <- dni / 4.87
   } else k <- 0
   k <- ifelse(k > 1, 1, k)
+  ################################################################################
+  ## these four formulas are the first four formulas on page 283 of Maclean et al (2019)
+  ## Isotropically distributed diffuse rad
   isor <- 0.5 * dif * (1 + cos(a)) * (1 - k)
+
+  ## anistropic diffuse rad
   cisr <- k * dif * si
+
+  ## slope of surface + mean slope of the adjacent slopes
   sdi <- (slope + ha) * (pi / 180)
+
+  ## reflected diffuse radiation
   refr <- 0.5 * albr * (1 - cos(sdi)) * dif
+
+  ##############################################################################
+
+
+  ## part of the first term in the square brackets in the forumla after equation 2 in Maclean et al.
   fd <- dirr + cisr
+
+  ## part of the second term in the square brackets in the forumla after equation 2 in Maclean et al. (2019)
   fdf <- isor + refr
+
   saltitude <- solalt(localtime, lat, long, julian, merid, dst)
   albl <- albedo2(alb, fr,  ground = FALSE)
   albg <- albedo2(alb, fr,  ground = TRUE)
@@ -961,13 +982,29 @@ shortwaveveg <- function(dni, dif, julian, localtime, lat = NA, long = NA,
     albl <- 0.5
     albg <- 0.15
   }
+
+  ## What is this term?
   s <- 1 - is_raster(albl)
+
+  ## equation 3 in Maclean et al. (2019)
   zen <- 90 - saltitude
   kk <- sqrt((x^2 + (tan(zen * (pi/180))^2)))/(x + 1.774 * (x + 1.182)^(-0.733))
+
+  ## exponential portion of the first term in the square brackets in the forumla after equation 2 in Maclean et al. (2018)
   trd <- exp(-kk * s * l)
+
+  ## exponential portion of of the second term in the square brackets in the forumla after equation 2 in Maclean et al. (2018)
   trf <- exp(-s * l)
+
+  if (downwelling) albg = 0
+
+  ## direct subcanopy shortwave. removed albedo term to change it from net to downwelling shortwave
   fgd <- fd * trd * (1 - albg)
+
+  ## diffuse subcanopy shortwave. removed albedo term to change it from net to downwelling shortwave
   fged <- fdf * trf * (1 - albg) * svv
+
+  ## total subcaopy shortwave
   fgc <- fgd + fged
   if_raster(fgc, r)
 }
